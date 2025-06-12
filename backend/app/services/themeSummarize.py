@@ -38,10 +38,17 @@ DOC002: Explanation
 theme_summarizer_chain = LLMChain(llm=llm, prompt=prompt)
 
 
+def summarize_themes(doc_answers):
+    formatted_input = "\n".join([f"{d['doc_id']}: {d['answer']}" for d in doc_answers])
+    themes = theme_summarizer_chain.run({"extracted_answers": formatted_input})
+    return themes
 
-# Format into one string
-formatted_input = "\n".join([f"{d['doc_id']}: {d['answer']}" for d in doc_answers])
 
-# Run synthesis
-themes = theme_summarizer_chain.run({"extracted_answers": formatted_input})
-print("🎯 Synthesized Themes:\n", themes)
+
+
+# # Format into one string
+# formatted_input = "\n".join([f"{d['doc_id']}: {d['answer']}" for d in doc_answers])
+
+# # Run synthesis
+# themes = theme_summarizer_chain.run({"extracted_answers": formatted_input})
+# print("🎯 Synthesized Themes:\n", themes)
