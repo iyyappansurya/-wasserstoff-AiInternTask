@@ -1,12 +1,12 @@
 import streamlit as st
 import requests
 
-API_URL = "http://localhost:8000"
+API_URL = "https://rag-backend-5z5q.onrender.com"
 
 # Upload multiple documents
 def upload_documents(files):
     multiple_files = [("files", (file.name, file, "application/octet-stream")) for file in files]
-    response = requests.post(f"{API_URL}/upload", files=m   ultiple_files)
+    response = requests.post(f"{API_URL}/upload", files=multiple_files)
     return response.json()
 
 # Query the documents
