@@ -52,49 +52,69 @@ import json
 #     vectorstore.add_documents(docs)
 #     vectorstore.persist()
 
+import os
+import logging
+from dotenv import load_dotenv
 from langchain_community.vectorstores import Qdrant
 from langchain.docstore.document import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
-import os
-from dotenv import load_dotenv
+from more_itertools import chunked
+
 load_dotenv()
 
-# Get from your environment or .env
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-QDRANT_COLLECTION = "document_chunks"
+QDRANT_COLLECTION = "documents_chunks"
+
+BATCH_SIZE = 100  # Adjust this based on available memory
 
 def embed_chunks(chunks):
-    docs = [
-        Document(page_content=chunk["text"], metadata=chunk["metadata"])
-        for chunk in chunks
-    ]
+    logging.info(f"Starting embedding for {len(chunks)} chunks...")
 
-    embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-    # Create Qdrant client
-    qdrant_client = QdrantClient(
-        url=QDRANT_URL,
-        api_key=QDRANT_API_KEY,
-    )
-
-    # Create collection if not exists
     try:
-        qdrant_client.get_collection(QDRANT_COLLECTION)
-    except Exception:
-        qdrant_client.recreate_collection(
-            collection_name=QDRANT_COLLECTION,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+        if not chunks:
+            logging.warning("No chunks provided for embedding.")
+            return {"status": "error", "message": "No chunks to embed."}
+
+        embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+        qdrant_client = QdrantClient(
+            url=QDRANT_URL,
+            api_key=QDRANT_API_KEY,
         )
 
-    # Store embeddings in Qdrant
-    vectorstore = Qdrant(
-        client=qdrant_client,
-        collection_name=QDRANT_COLLECTION,
-        embeddings=embedding
-    )
+        # Ensure collection exists
+        try:
+            qdrant_client.get_collection(QDRANT_COLLECTION)
+        except Exception:
+            qdrant_client.recreate_collection(
+                collection_name=QDRANT_COLLECTION,
+                vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+            )
+            logging.info(f"Collection '{QDRANT_COLLECTION}' created.")
 
-    vectorstore.add_documents(docs)
-    print("✅ Embedded and stored documents in Qdrant.")
+        vectorstore = Qdrant(
+            client=qdrant_client,
+            collection_name=QDRANT_COLLECTION,
+            embeddings=embedding_model
+        )
+
+        total_batches = (len(chunks) - 1) // BATCH_SIZE + 1
+        for batch_idx, chunk_batch in enumerate(chunked(chunks, BATCH_SIZE), start=1):
+            docs = [
+                Document(page_content=chunk["text"], metadata=chunk["metadata"])
+                for chunk in chunk_batch
+            ]
+            vectorstore.add_documents(docs)
+            logging.info(f"Embedded batch {batch_idx}/{total_batches} ({len(docs)} docs)")
+
+        logging.info("✅ All chunks embedded successfully.")
+        return {"status": "success", "chunks_embedded": len(chunks)}
+
+    except Exception as e:
+        logging.error(f"Embedding failed: {str(e)}")
+        return {"status": "error", "message": str(e)}

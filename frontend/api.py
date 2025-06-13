@@ -11,4 +11,4 @@ def ask_query(query):
     print("🔍 Response JSON:", response.text)  # Add this to debug
     return response.json()
 def get_themes():
-    return requests.get(f"{API_URL}/themes").json()
+    return requests.post(f"{API_URL}/themes").json()

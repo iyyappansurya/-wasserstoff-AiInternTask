@@ -71,54 +71,86 @@ from fastapi import APIRouter, UploadFile, File
 from app.services import processDocuments, embed
 from .supabase import supabase
 import uuid
-import tempfile
 import os
+import logging
 from dotenv import load_dotenv
-load_dotenv()
+from more_itertools import chunked 
 
+load_dotenv()
 
 router = APIRouter()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 @router.post("/")
 async def upload_files(files: list[UploadFile] = File(...)):
+    logging.info(f"Received {len(files)} files for upload.")
+
     saved_files = []
     for file in files:
-        file_ext = os.path.splitext(file.filename)[1]
-        file_id = str(uuid.uuid4())
-        unique_filename = f"{file_id}{file_ext}"
+        try:
+            file_ext = os.path.splitext(file.filename)[1]
+            file_id = str(uuid.uuid4())
+            unique_filename = f"{file_id}{file_ext}"
 
-        # Read file content into bytes
-        file_bytes = await file.read()
+            file_bytes = await file.read()
+            public_url = upload_to_supabase(file_bytes, unique_filename)
 
-        # Upload to Supabase Storage
-        public_url = upload_to_supabase(file_bytes, unique_filename)
+            saved_files.append({
+                "file_id": file_id,
+                "filename": file.filename,
+                "url": public_url,
+                "ext": file_ext
+            })
+        except Exception as e:
+            return {
+                "status": "error",
+                "files_processed": 0,
+                "message": f"Failed to upload {file.filename}",
+                "details": str(e)
+            }
 
-        saved_files.append({
-            "file_id": file_id,
-            "filename": file.filename,
-            "url": public_url,
-            "ext": file_ext
-        })
-
-    # Process and embed
     chunks = []
-    for f in saved_files:
-        doc_chunks = processDocuments.process_file_from_url(f["url"], f["file_id"], f["ext"])
-        chunks.extend(doc_chunks)
+    batch_size = 10
+    for file_batch in chunked(saved_files, batch_size):
+        for f in file_batch:
+            try:
+                logging.info(f"Processing file: {f['filename']} (ID: {f['file_id']})")
+                doc_chunks = processDocuments.process_file_from_url(f["url"], f["file_id"], f["ext"])
+                logging.info(f"Extracted {len(doc_chunks)} chunks from {f['filename']}")
+                chunks.extend(doc_chunks)
+            except Exception as e:
+                logging.error(f"Failed to process {f['filename']}: {str(e)}")
 
-    embed.embed_chunks(chunks)
-    return {"status": "success", "files_processed": len(saved_files)}
+    try:
+        embed.embed_chunks(chunks)
+        return {
+            "status": "success",
+            "files_processed": len(saved_files),
+            "chunks_embedded": len(chunks)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "files_processed": 0,
+            "message": "Failed during embedding",
+            "details": str(e)
+        }
 
 def upload_to_supabase(file: bytes, filename: str, bucket: str = "user-uploads") -> str:
-    response = supabase.storage.from_(bucket).upload(
-        path=filename,
-        file=file,
-        file_options={"content-type": "application/octet-stream"},
-        upsert=True
-    )
+    try:
+        response = supabase.storage.from_(bucket).upload(
+            path=filename,
+            file=file,
+            file_options={"content-type": "application/octet-stream"}
+        )
 
-    if response.get("error"):
-        raise Exception(f"Upload failed: {response['error']['message']}")
+        if hasattr(response, "error") and response.error:
+            raise Exception(f"Upload failed: {response.error.message}")
 
-    public_url = supabase.storage.from_(bucket).get_public_url(filename)
-    return public_url
+        public_url = supabase.storage.from_(bucket).get_public_url(filename)
+        return public_url
+    except Exception as e:
+        logging.error(f"Supabase upload error for {filename}: {str(e)}")
+        raise

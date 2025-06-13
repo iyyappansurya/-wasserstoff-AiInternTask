@@ -112,6 +112,7 @@ from PIL import Image
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import spacy
 import tempfile
+import logging
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -170,12 +171,14 @@ def chunk_with_metadata(texts, doc_id):
                         "doc_id": doc_id,
                         "page": page_num,
                         "paragraph": para_index,
-                        "chunk_index": chunk_index
+                        "chunk_index": chunk_index,
+                        "source": f"{doc_id}_page_{page_num}"
                     }
                 })
     return chunks
 
-def process_file_from_url(file_url, doc_id, file_ext):
+def process_file_from_url(file_url, doc_id, file_ext, max_chunks=None):
+    logging.info(f"Downloading and processing: {file_url}")
     temp_path = download_temp_file(file_url, file_ext)
 
     try:
@@ -188,6 +191,13 @@ def process_file_from_url(file_url, doc_id, file_ext):
         else:
             raise ValueError(f"Unsupported file type: {file_ext}")
     finally:
-        os.remove(temp_path)  # Clean up
+        os.remove(temp_path)
 
-    return chunk_with_metadata(pages, doc_id)
+    chunks = chunk_with_metadata(pages, doc_id)
+    logging.info(f"Generated {len(chunks)} chunks for {doc_id}")
+
+    if max_chunks and len(chunks) > max_chunks:
+        logging.warning(f"Trimming to {max_chunks} chunks due to limit")
+        chunks = chunks[:max_chunks]
+
+    return chunks
