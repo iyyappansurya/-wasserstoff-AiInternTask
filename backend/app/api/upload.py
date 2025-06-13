@@ -69,7 +69,7 @@
 
 from fastapi import APIRouter, UploadFile, File
 from app.services import processDocuments, embed
-from .supabase_client import supabase
+from .supabase import supabase
 import uuid
 import tempfile
 import os
