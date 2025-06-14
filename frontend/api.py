@@ -1,6 +1,6 @@
 import requests
 
-API_URL = "https://rag-backend-5z5q.onrender.com"
+API_URL = "https://rag-backend-is2p.onrender.com"
 
 def upload_document(file):
     files = {"file": (file.name, file, "application/octet-stream")}
