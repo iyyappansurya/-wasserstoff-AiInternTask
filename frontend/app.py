@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-API_URL = "http://localhost:8000"
+API_URL = "https://rag-backend-5z5q.onrender.com"
 
 # Upload multiple documents
 def upload_documents(files):
