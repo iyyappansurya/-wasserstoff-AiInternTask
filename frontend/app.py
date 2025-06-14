@@ -1,7 +1,12 @@
 import streamlit as st
 import requests
+from dotenv import load_dotenv
+import os
 
-API_URL = "https://rag-backend-is2p.onrender.com"
+# Load environment variables
+load_dotenv()
+
+API_URL = os.getenv("API_URL")
 
 # Upload multiple documents
 def upload_documents(files):
