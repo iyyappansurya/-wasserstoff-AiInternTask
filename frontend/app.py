@@ -13,7 +13,7 @@ API_URL = os.getenv("API_URL")
 def upload_documents(files):
     try:
         multiple_files = [("files", (file.name, file, "application/octet-stream")) for file in files]
-        response = requests.post(f"{API_URL}/upload", files=multiple_files)
+        response = requests.post(f"{API_URL}/upload/", files=multiple_files)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -23,7 +23,7 @@ def upload_documents(files):
 # Query the documents
 def ask_query(query):
     try:
-        response = requests.post(f"{API_URL}/query", json={"query": query})
+        response = requests.post(f"{API_URL}/query/", json={"query": query})
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -37,7 +37,7 @@ def get_themes():
         if not answers:
             st.warning("No answers to summarize. Please ask a question first.")
             return None
-        response = requests.post(f"{API_URL}/themes", json={"answers": answers})
+        response = requests.post(f"{API_URL}/themes/", json={"answers": answers})
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
