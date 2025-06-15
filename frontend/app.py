@@ -4,94 +4,52 @@ from dotenv import load_dotenv
 import os
 import pandas as pd
 import time
-import threading
-from concurrent.futures import ThreadPoolExecutor
 
 # Load environment variables
 load_dotenv()
 
 API_URL = os.getenv("API_URL")
 
-# Optimized upload function with concurrent batches
-def upload_documents_concurrent(files, batch_size=5, max_workers=2):
-    """Upload files using concurrent batches for better performance"""
+# Upload multiple documents in batches
+def upload_documents_batch(files, batch_size=10):
+    """Upload files in batches to avoid timeout and size limits"""
     total_files = len(files)
-    results = []
+    successful_uploads = 0
+    failed_uploads = []
     
-    # Create batches
-    batches = [files[i:i + batch_size] for i in range(0, total_files, batch_size)]
-    
-    def upload_batch(batch_info):
-        batch_idx, batch = batch_info
-        try:
-            st.info(f"🔄 Processing batch {batch_idx + 1}/{len(batches)} ({len(batch)} files)")
-            
-            multiple_files = [("files", (file.name, file, "application/octet-stream")) for file in batch]
-            
-            # Use shorter timeout and add retry logic
-            for attempt in range(2):  # 2 attempts
-                try:
-                    response = requests.post(
-                        f"{API_URL}/upload/", 
-                        files=multiple_files, 
-                        timeout=120  # 2 minute timeout instead of 5
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    
-                    if result.get("status") == "success":
-                        st.success(f"✅ Batch {batch_idx + 1}: {result.get('files_processed', len(batch))} files processed")
-                        return {
-                            "batch_idx": batch_idx,
-                            "success": True,
-                            "files_processed": result.get('files_processed', len(batch)),
-                            "timing": result.get('timing', {}),
-                            "details": result.get('details', {})
-                        }
-                    break
-                    
-                except requests.exceptions.Timeout:
-                    if attempt == 0:
-                        st.warning(f"⏱️ Batch {batch_idx + 1} timeout, retrying...")
-                        continue
-                    else:
-                        raise
-                        
-        except Exception as e:
-            st.error(f"❌ Batch {batch_idx + 1} failed: {str(e)}")
-            return {
-                "batch_idx": batch_idx,
-                "success": False,
-                "error": str(e),
-                "files": [f.name for f in batch]
-            }
-    
-    # Process batches with limited concurrency
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        batch_futures = [
-            executor.submit(upload_batch, (i, batch)) 
-            for i, batch in enumerate(batches)
-        ]
+    # Process files in batches
+    for i in range(0, total_files, batch_size):
+        batch = files[i:i + batch_size]
+        st.info(f"Processing batch {i//batch_size + 1}: files {i+1} to {min(i+batch_size, total_files)}")
         
-        for future in batch_futures:
-            result = future.result()
-            results.append(result)
+        try:
+            multiple_files = [("files", (file.name, file, "application/octet-stream")) for file in batch]
+            response = requests.post(f"{API_URL}/upload/", files=multiple_files, timeout=300)  # 5 min timeout
+            response.raise_for_status()
+            
+            result = response.json()
+            if result and result.get("status") == "success":
+                successful_uploads += result.get('files_processed', len(batch))
+                st.success(f"✅ Batch {i//batch_size + 1}: Processed {len(batch)} files")
+            else:
+                failed_uploads.extend([f.name for f in batch])
+                st.error(f"❌ Batch {i//batch_size + 1} failed: {result.get('message', 'Unknown error')}")
+                
+        except requests.exceptions.RequestException as e:
+            failed_uploads.extend([f.name for f in batch])
+            st.error(f"❌ Batch {i//batch_size + 1} failed: {e}")
+        
+        # Small delay between batches
+        if i + batch_size < total_files:
+            time.sleep(1)
     
-    return results
+    return {
+        "total_files": total_files,
+        "successful_uploads": successful_uploads,
+        "failed_uploads": failed_uploads
+    }
 
-# Quick upload option
-def upload_documents_quick(files):
-    """Quick upload endpoint - returns immediately"""
-    try:
-        multiple_files = [("files", (file.name, file, "application/octet-stream")) for file in files]
-        response = requests.post(f"{API_URL}/upload/quick", files=multiple_files, timeout=30)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        st.error(f"Quick upload failed: {e}")
-        return None
-
-# Query and themes functions (unchanged)
+# Query the documents
 def ask_query(query):
     try:
         response = requests.post(f"{API_URL}/query/", json={"query": query})
@@ -101,6 +59,7 @@ def ask_query(query):
         st.error(f"Query failed: {e}")
         return None
 
+# Get theme synthesis
 def get_themes():
     try:
         answers = st.session_state.get("answers", [])
@@ -115,132 +74,65 @@ def get_themes():
         return None
 
 # --- Streamlit UI ---
-st.title("📚 RAG Chatbot – AI Intern Task (Optimized)")
-
-# Performance metrics in sidebar
-with st.sidebar:
-    st.markdown("### ⚡ Performance Mode")
-    upload_mode = st.radio(
-        "Upload Strategy:",
-        ["Concurrent Batches", "Quick Upload", "Sequential (Original)"],
-        help="""
-        - **Concurrent**: Process multiple batches simultaneously (faster)
-        - **Quick**: Upload and return immediately, process in background
-        - **Sequential**: Original method (slower but reliable)
-        """
-    )
-    
-    if upload_mode == "Concurrent Batches":
-        batch_size = st.slider("Batch Size", 3, 15, 5)
-        max_workers = st.slider("Concurrent Batches", 1, 3, 2)
-    
-    st.markdown("### 📊 Upload Tips")
-    st.markdown("""
-    - **Optimal batch size**: 5-8 files
-    - **Expected time**: ~30-60s per batch
-    - **File size**: Keep under 10MB each
-    - **Formats**: PDF works fastest
-    """)
+st.title("📚 RAG Chatbot – AI Intern Task")
 
 # Initialize session state
 if "answers" not in st.session_state:
     st.session_state["answers"] = []
-if "upload_history" not in st.session_state:
-    st.session_state["upload_history"] = []
 
-# File upload section
+# Enhanced file upload section
 st.markdown("### 📁 Document Upload")
+st.markdown("*Upload up to 100+ documents (PDF, TXT, PNG, JPG)*")
+
 uploaded_files = st.file_uploader(
     "Choose files", 
     type=["pdf", "txt", "png", "jpg"], 
     accept_multiple_files=True,
-    help="Select multiple files for upload"
+    help="Select multiple files. You can upload 75+ documents."
 )
 
 if uploaded_files:
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Files Selected", len(uploaded_files))
-    with col2:
-        total_size = sum(file.size for file in uploaded_files) / (1024*1024)  # MB
-        st.metric("Total Size", f"{total_size:.1f} MB")
-    with col3:
-        if upload_mode == "Concurrent Batches":
-            estimated_time = (len(uploaded_files) / batch_size) * 45 / max_workers  # seconds
-            st.metric("Est. Time", f"{estimated_time:.0f}s")
+    st.info(f"Selected {len(uploaded_files)} files for upload")
+    
+    # Show file list if more than 10 files
+    if len(uploaded_files) > 10:
+        with st.expander(f"📋 View all {len(uploaded_files)} selected files"):
+            for i, file in enumerate(uploaded_files, 1):
+                st.text(f"{i}. {file.name} ({file.size} bytes)")
 
-# Upload buttons
+# Upload configuration
 col1, col2 = st.columns(2)
-
 with col1:
-    if st.button("🚀 Upload Documents", disabled=not uploaded_files, type="primary"):
-        start_time = time.time()
-        
-        if upload_mode == "Quick Upload":
-            with st.spinner("Quick uploading..."):
-                result = upload_documents_quick(uploaded_files)
-            
-            if result:
-                st.success(f"✅ Quick upload successful! {result['files_received']} files accepted")
-                st.info("📋 Files are being processed in the background")
-                
-        elif upload_mode == "Concurrent Batches":
-            with st.spinner(f"Processing {len(uploaded_files)} files in concurrent batches..."):
-                results = upload_documents_concurrent(uploaded_files, batch_size, max_workers)
-            
-            # Analyze results
-            successful_batches = [r for r in results if r.get("success")]
-            failed_batches = [r for r in results if not r.get("success")]
-            total_processed = sum(r.get("files_processed", 0) for r in successful_batches)
-            
-            # Display results
-            total_time = time.time() - start_time
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Files Processed", total_processed)
-            with col2:
-                st.metric("Successful Batches", len(successful_batches))
-            with col3:
-                st.metric("Failed Batches", len(failed_batches))
-            with col4:
-                st.metric("Total Time", f"{total_time:.1f}s")
-            
-            # Show timing details for successful batches
-            if successful_batches:
-                st.success(f"✅ Successfully processed {total_processed} files!")
-                
-                # Show detailed timing if available
-                with st.expander("📊 Performance Breakdown"):
-                    timing_data = []
-                    for result in successful_batches:
-                        if "timing" in result:
-                            timing = result["timing"]
-                            timing_data.append({
-                                "Batch": result["batch_idx"] + 1,
-                                "Files": result["files_processed"],
-                                "Total Time": timing.get("total_time", "N/A"),
-                                "Read Time": timing.get("read_time", "N/A"),
-                                "Process Time": timing.get("process_time", "N/A")
-                            })
-                    
-                    if timing_data:
-                        df = pd.DataFrame(timing_data)
-                        st.dataframe(df, use_container_width=True)
-            
-            if failed_batches:
-                with st.expander("❌ Failed Batches"):
-                    for failed in failed_batches:
-                        st.error(f"Batch {failed['batch_idx'] + 1}: {failed.get('error', 'Unknown error')}")
-        
-        else:  # Sequential (original)
-            st.warning("Using original sequential upload (slower)")
-            # Your original upload logic here
-
+    batch_size = st.selectbox("Batch size (files per batch)", [5, 10, 15, 20], index=1)
 with col2:
-    if st.button("📊 Check Upload Status", disabled=not uploaded_files):
-        # Add endpoint to check processing status
-        st.info("Status checking not implemented yet")
+    st.metric("Files Selected", len(uploaded_files) if uploaded_files else 0)
+
+if st.button("📤 Upload All Documents", disabled=not uploaded_files):
+    if len(uploaded_files) > 75:
+        st.warning(f"You've selected {len(uploaded_files)} files. This may take several minutes.")
+    
+    with st.spinner(f"Processing {len(uploaded_files)} documents in batches..."):
+        upload_result = upload_documents_batch(uploaded_files, batch_size)
+    
+    # Display results
+    st.markdown("### Upload Results")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Total Files", upload_result["total_files"])
+    with col2:
+        st.metric("Successful", upload_result["successful_uploads"], 
+                 delta=upload_result["successful_uploads"] - upload_result["total_files"])
+    with col3:
+        st.metric("Failed", len(upload_result["failed_uploads"]))
+    
+    if upload_result["failed_uploads"]:
+        with st.expander("❌ Failed uploads"):
+            for failed_file in upload_result["failed_uploads"]:
+                st.text(f"• {failed_file}")
+    
+    if upload_result["successful_uploads"] > 0:
+        st.success(f"✅ Successfully uploaded and processed {upload_result['successful_uploads']} files!")
 
 # Query interface
 st.markdown("### 💬 Ask Questions")
@@ -253,6 +145,7 @@ if st.button("🔍 Get Answer", disabled=not query):
     if response and "results" in response:
         results = response["results"]
         
+        # Build data for the table
         table_data = []
         for result in results:
             table_data.append({
@@ -261,11 +154,13 @@ if st.button("🔍 Get Answer", disabled=not query):
                 "Citation": f"Page {result['page']}, Para {result['paragraph']}"
             })
             
+            # Save for later theme synthesis
             st.session_state["answers"].append({
                 "doc_id": result["doc_id"],
                 "answer": result["answer"]
             })
         
+        # Display as a DataFrame
         st.markdown("### Individual Document Answers")
         df = pd.DataFrame(table_data)
         st.dataframe(df, use_container_width=True)
@@ -291,7 +186,17 @@ if st.button("🧠 Summarize Themes"):
     else:
         st.warning("Failed to generate themes.")
 
-# Performance tracking
-if st.session_state.get("upload_history"):
-    with st.expander("📈 Upload History"):
-        st.json(st.session_state["upload_history"])
+# Additional info
+with st.sidebar:
+    st.markdown("### ℹ️ Tips for Large Uploads")
+    st.markdown("""
+    - **Batch processing**: Files are uploaded in smaller batches
+    - **Supported formats**: PDF, TXT, PNG, JPG
+    - **File size**: Keep individual files under 200MB
+    - **Total time**: Large uploads may take 5-15 minutes
+    - **Network**: Ensure stable internet connection
+    """)
+    
+    if "answers" in st.session_state and st.session_state["answers"]:
+        st.markdown(f"### 📊 Session Stats")
+        st.metric("Queries Made", len(st.session_state["answers"]))
