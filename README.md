@@ -1,6 +1,6 @@
 # Wasserstoff AI Intern Task - Document Chatbot
 
-This repository contains a document-based chatbot built using FastAPI, Qdrant, HuggingFace, and Streamlit. It was developed as part of an internship assignment to handle 75+ uploaded documents and provide the following functionality:
+This repository contains a document-based chatbot built using FastAPI, Qdrant, HuggingFace, and Streamlit.Backend deployed in HuggingFace and Frontend in Streamlit Cloud. It was developed as part of an internship assignment to handle 75+ uploaded documents and provide the following functionality:
 
 - Upload multiple files (PDFs, images, or text)
 - Process, chunk, and embed document content
@@ -75,7 +75,6 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 cd frontend
 streamlit run streamlit_app.py
-
 
 ### Future Improvements
 
