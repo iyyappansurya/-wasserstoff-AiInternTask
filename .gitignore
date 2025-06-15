@@ -2,5 +2,4 @@
 /backend/vector_db/
 /.env
 __pycache__
-.devcontainer
 /backend/data/

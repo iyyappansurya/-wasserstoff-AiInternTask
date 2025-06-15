@@ -86,8 +86,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 @router.post("/")
 async def upload_files(files: list[UploadFile] = File(...)):
     logging.info(f"Received {len(files)} files for upload.")
-
+    
+    # Add file count validation
+    if len(files) > 50:  # Adjust this limit as needed
+        logging.warning(f"Large batch detected: {len(files)} files")
+    
     saved_files = []
+    failed_files = []
+    
     for file in files:
         try:
             file_ext = os.path.splitext(file.filename)[1]
@@ -103,40 +109,39 @@ async def upload_files(files: list[UploadFile] = File(...)):
                 "url": public_url,
                 "ext": file_ext
             })
+            logging.info(f"Successfully uploaded: {file.filename}")
+            
         except Exception as e:
-            return {
-                "status": "error",
-                "files_processed": 0,
-                "message": f"Failed to upload {file.filename}",
-                "details": str(e)
-            }
+            logging.error(f"Failed to upload {file.filename}: {str(e)}")
+            failed_files.append({"filename": file.filename, "error": str(e)})
 
+    # Continue with processing...
     chunks = []
-    batch_size = 10
-    for file_batch in chunked(saved_files, batch_size):
-        for f in file_batch:
-            try:
-                logging.info(f"Processing file: {f['filename']} (ID: {f['file_id']})")
-                doc_chunks = processDocuments.process_file_from_url(f["url"], f["file_id"], f["ext"])
-                logging.info(f"Extracted {len(doc_chunks)} chunks from {f['filename']}")
-                chunks.extend(doc_chunks)
-            except Exception as e:
-                logging.error(f"Failed to process {f['filename']}: {str(e)}")
+    for f in saved_files:
+        try:
+            logging.info(f"Processing file: {f['filename']} (ID: {f['file_id']})")
+            doc_chunks = processDocuments.process_file_from_url(f["url"], f["file_id"], f["ext"])
+            chunks.extend(doc_chunks)
+        except Exception as e:
+            logging.error(f"Failed to process {f['filename']}: {str(e)}")
 
     try:
         embed.embed_chunks(chunks)
         return {
             "status": "success",
             "files_processed": len(saved_files),
-            "chunks_embedded": len(chunks)
+            "chunks_embedded": len(chunks),
+            "failed_files": failed_files
         }
     except Exception as e:
         return {
             "status": "error",
-            "files_processed": 0,
+            "files_processed": len(saved_files),
             "message": "Failed during embedding",
-            "details": str(e)
+            "details": str(e),
+            "failed_files": failed_files
         }
+        
 
 def upload_to_supabase(file: bytes, filename: str, bucket: str = "user-uploads") -> str:
     try:

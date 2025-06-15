@@ -1,7 +1,7 @@
-from langchain_community.vectorstores import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.docstore.document import Document
-import json
+# from langchain_community.vectorstores import Chroma
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain.docstore.document import Document
+# import json
 
 # Load chunks
 # with open("backend/data/chunk_output/all_chunks.json", "r", encoding="utf-8") as f:
@@ -57,10 +57,12 @@ import logging
 from dotenv import load_dotenv
 from langchain_community.vectorstores import Qdrant
 from langchain.docstore.document import Document
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import SentenceTransformerEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
 from more_itertools import chunked
+import glob
 
 load_dotenv()
 
@@ -70,6 +72,9 @@ QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 QDRANT_COLLECTION = "documents_chunks"
 
+os.environ["HF_HOME"] = "/tmp/hf_cache"
+os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache"
+os.environ["HUGGINGFACE_HUB_CACHE"] = "/tmp/hf_cache"
 BATCH_SIZE = 100  # Adjust this based on available memory
 
 def embed_chunks(chunks):
@@ -80,8 +85,12 @@ def embed_chunks(chunks):
             logging.warning("No chunks provided for embedding.")
             return {"status": "error", "message": "No chunks to embed."}
 
-        embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
+        # Clean up any .lock files that may prevent downloading
+        for lock in glob.glob("/tmp/hf_cache/**/*.lock", recursive=True):
+            os.remove(lock)
+        # embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2",cache_folder="/tmp/hf_cache")
+        embedding_model = HuggingFaceEmbeddings(model_name="./app/local_model/all-MiniLM-L6-v2/")
+        
         qdrant_client = QdrantClient(
             url=QDRANT_URL,
             api_key=QDRANT_API_KEY,

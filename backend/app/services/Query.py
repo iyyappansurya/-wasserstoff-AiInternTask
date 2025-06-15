@@ -35,12 +35,14 @@
 # 
 
 from langchain_community.vectorstores import Qdrant
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 from langchain_groq import ChatGroq
 from qdrant_client import QdrantClient
 from dotenv import load_dotenv
 import os
+import glob
 
 # Load environment variables
 load_dotenv()
@@ -50,8 +52,15 @@ qdrant_url = os.getenv("QDRANT_URL")
 qdrant_api_key = os.getenv("QDRANT_API_KEY")
 qdrant_collection = "documents_chunks"  # same as used in embed.py
 
+os.environ["HF_HOME"] = "/tmp/hf_cache"
+os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache"
+os.environ["HUGGINGFACE_HUB_CACHE"] = "/tmp/hf_cache"
 # Load embedding model
-embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# Clean up any .lock files that may prevent downloading
+for lock in glob.glob("/tmp/hf_cache/**/*.lock", recursive=True):
+    os.remove(lock)
+# embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2",cache_folder="/tmp/hf_cache")
+embedding = HuggingFaceEmbeddings(model_name="./app/local_model/all-MiniLM-L6-v2/")
 
 # Initialize Qdrant client
 qdrant_client = QdrantClient(
